@@ -1,62 +1,57 @@
 import ballerina/http;
 import ballerinax/mongodb;
-import ballerina/io;
+import ballerina/log;
 
-// MongoDB configuration...
-configurable string host = "localhost";
-configurable int port = 27017;
-configurable string username = ?;
-configurable string password = ?;
-configurable string database = ?;
+type User record {
+    string username;
+    string password;
+};
 
-final mongodb:Client mongoDb = check new (
-    {
-        connection: {
+// Initialize MongoDB client
+mongodb:Client mongoDb = check new ({
+    connection: {
         serverAddress: {
-            host,
-            port
-        },
-        auth: <mongodb:ScramSha256AuthCredential>{
-            username,
-            password,
-            database
+            host: "localhost",
+            port: 27017
         }
     }
-    }
-);
+});
 
-service on new http:Listener(9091) {
-    private final mongodb:Database db;
+// Define the HTTP service with the correct path
+service / on new http:Listener(8080) {
+
+    // MongoDB Database and Collection initialization
+    mongodb:Database userDb;
+    mongodb:Collection userCollection;
 
     function init() returns error? {
-        io:println("Connecting to database...");
-        self.db = check mongoDb->getDatabase("Users");
-        io:println("Connected to database.");
+        self.userDb = check mongoDb->getDatabase("userDB");
+        self.userCollection = check self.userDb->getCollection("users");
     }
 
-    // Resource for the root path
-    resource function get root() returns string {
-        return "Welcome to the VitaCam backend!";
-    }
+    // POST resource for the `/signup` endpoint
+    isolated resource function post signup(http:Caller caller, http:Request req) 
+            returns error?  { // Marking the resource function as 'isolated'
+        json signuppayload = check req.getJsonPayload();
+        User userDetails = check signuppayload.cloneWithType(User);
 
-    // Resource for customers
-    resource function get customers() returns Customer | error {
-        io:println("Fetching a single customer...");
-        mongodb:Collection customersCollection = check self.db->getCollection("VitaCam_Auth");
-        
-        // Use findOne to retrieve a single document for testing
-        Customer? customer = check customersCollection->findOne({});
-        if (customer is ()) {
-            return error("No customer found");
+        // Check if the user already exists
+        map<json> filter = {username: userDetails.username};
+        stream<User, error?> userStream = check self.userCollection->find(filter);
+        if (userStream.next() is record {| User value; |}) {
+            log:printError("User already exists");
+            http:Response conflictResponse = new;
+            conflictResponse.setTextPayload("User already exists");
+            check caller->respond(conflictResponse);
+            return;
         }
-        return customer;
+
+        // Insert the new user into MongoDB
+        check self.userCollection->insertOne(userDetails);
+
+        // Send success response
+        http:Response response = new;
+        response.setTextPayload("User signed up successfully");
+        check caller->respond(response);
     }
 }
-
-type Customer record {| 
-    string id; 
-    string name; 
-    string email; 
-    string address; 
-    string contactNumber; 
-|};
