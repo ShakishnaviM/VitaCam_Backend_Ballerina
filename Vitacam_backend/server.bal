@@ -44,6 +44,15 @@ service / on new http:Listener(8080) {
         self.userCollection = check self.userDb->getCollection("users");
     }
 
+
+    isolated resource function options signup(http:Caller caller, http:Request req) returns error? {
+        http:Response res = new;
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        check caller->respond(res);
+    }
+
     // POST resource for the `/signup` endpoint
     isolated resource function post signup(http:Caller caller, http:Request req) 
             returns error? {
@@ -68,6 +77,7 @@ service / on new http:Listener(8080) {
         // Send success response
         http:Response response = new;
         response.setTextPayload("User signed up successfully");
+        response.setHeader("Access-Control-Allow-Origin", "*");
         check caller->respond(response);
     }
 
