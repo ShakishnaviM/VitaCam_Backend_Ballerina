@@ -9,6 +9,12 @@ type User record {
     string password;
 };
 
+// Define the credentials record for sign-in
+type Credentials record {
+    string email;
+    string password;
+};
+
 // Initialize MongoDB client
 mongodb:Client mongoDb = check new ({
     connection: {
@@ -19,8 +25,8 @@ mongodb:Client mongoDb = check new ({
     }
 });
 
-// Define the HTTP service with the correct path
-service / on new http:Listener(8080) {
+// Define the HTTP service with the correct base path `/auth`
+service /auth on new http:Listener(8080) {
 
     // MongoDB Database and Collection initialization
     mongodb:Database userDb;
@@ -56,5 +62,45 @@ service / on new http:Listener(8080) {
         http:Response response = new;
         response.setTextPayload("User signed up successfully");
         check caller->respond(response);
+    }
+
+    // POST resource for the `/signin` endpoint
+    isolated resource function post signin(http:Caller caller, http:Request req) 
+            returns error? {
+        json signinPayload = check req.getJsonPayload();
+        Credentials credentials = check signinPayload.cloneWithType(Credentials);
+
+        // Check if the user exists by email
+        map<json> emailFilter = {email: credentials.email};
+        stream<User, error?> userStream = check self.userCollection->find(emailFilter);
+
+        // Retrieve the first result from the stream
+        record {| User value; |}? userResult =  check userStream.next();
+        
+        if (userResult is ()) {
+            // If the email is not found, return user not found
+            log:printError("User not found");
+            http:Response userNotFoundResponse = new;
+            userNotFoundResponse.setTextPayload("User not found");
+            check caller->respond(userNotFoundResponse);
+            return;
+        } else {
+            // Extract the user from the result
+            User user = userResult.value;
+
+            // If the user exists, check the password
+            if (user.password != credentials.password) {
+                log:printError("Invalid credentials");
+                http:Response invalidCredsResponse = new;
+                invalidCredsResponse.setTextPayload("Invalid credentials");
+                check caller->respond(invalidCredsResponse);
+                return;
+            }
+
+            // If credentials are valid, send success response
+            http:Response response = new;
+            response.setTextPayload("User signed in successfully");
+            check caller->respond(response);
+        }
     }
 }
