@@ -2,8 +2,10 @@ import ballerina/http;
 import ballerinax/mongodb;
 import ballerina/log;
 
+// Define the user record with username, email, and password fields
 type User record {
     string username;
+    string email;
     string password;
 };
 
@@ -31,17 +33,18 @@ service / on new http:Listener(8080) {
 
     // POST resource for the `/signup` endpoint
     isolated resource function post signup(http:Caller caller, http:Request req) 
-            returns error?  { // Marking the resource function as 'isolated'
-        json signuppayload = check req.getJsonPayload();
-        User userDetails = check signuppayload.cloneWithType(User);
+            returns error? {
+        json signupPayload = check req.getJsonPayload();
+        User userDetails = check signupPayload.cloneWithType(User);
 
-        // Check if the user already exists
-        map<json> filter = {username: userDetails.username};
+        // Check if the user already exists by username or email
+        map<json> filter = { "$or": [{username: userDetails.username}, {email: userDetails.email}] };
         stream<User, error?> userStream = check self.userCollection->find(filter);
+        
         if (userStream.next() is record {| User value; |}) {
-            log:printError("User already exists");
+            log:printError("User with the same username or email already exists");
             http:Response conflictResponse = new;
-            conflictResponse.setTextPayload("User already exists");
+            conflictResponse.setTextPayload("User with the same username or email already exists");
             check caller->respond(conflictResponse);
             return;
         }
