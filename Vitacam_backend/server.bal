@@ -1,6 +1,5 @@
 import ballerina/http;
 import ballerinax/mongodb;
-import ballerina/log;
 
 type User record {
     string username;
@@ -54,8 +53,6 @@ service / on new http:Listener(8080) {
         self.vitaminInfoCollection = check self.userDb->getCollection("vitaminInfo");
     }
 
-    // Existing signup, signin, logout, and editProfile functions here...
-
     // New resource to fetch vitamin details based on the selected vitamin
     isolated resource function get vitaminInfo(http:Caller caller, http:Request req) returns error? {
         // Extract the vitamin name from the query parameter
@@ -84,9 +81,12 @@ service / on new http:Listener(8080) {
             return;
         }
 
+        // Convert VitaminInfo to json
+        json vitaminInfoJson = vitaminInfoResult.value.toJson();
+
         // Send the vitamin info as the response
         http:Response response = new;
-        response.setPayload(vitaminInfoResult.value);
+        response.setPayload(vitaminInfoJson);
         check caller->respond(response);
     }
 }
