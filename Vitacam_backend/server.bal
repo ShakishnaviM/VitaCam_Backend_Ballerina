@@ -1,25 +1,32 @@
 import ballerina/http;
 import ballerinax/mongodb;
-import ballerina/log;
 
-// Define the user record with username, email, and password fields
 type User record {
     string username;
     string email;
     string password;
 };
 
-// Define the credentials record for sign-in
 type Credentials record {
     string email;
     string password;
 };
 
-// Define the profile edit payload
 type ProfileEdit record {
     string? username;
     string? email;
     string? password;
+};
+
+// Define the structure for Vitamin Info
+type VitaminInfo record {
+    string vitamin;
+    VitaminSource[] sources;
+};
+
+type VitaminSource record {
+    string name;
+    string consumption;
 };
 
 // Initialize MongoDB client
@@ -32,151 +39,54 @@ mongodb:Client mongoDb = check new ({
     }
 });
 
-// Define the HTTP service with the correct base path `/auth`
 service / on new http:Listener(8080) {
 
-    // MongoDB Database and Collection initialization
     mongodb:Database userDb;
     mongodb:Collection userCollection;
+    mongodb:Collection vitaminInfoCollection;
 
     function init() returns error? {
         self.userDb = check mongoDb->getDatabase("userDB");
         self.userCollection = check self.userDb->getCollection("users");
-    }
-
-
-    isolated resource function options signup(http:Caller caller, http:Request req) returns error? {
-        http:Response res = new;
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-        check caller->respond(res);
-    }
-
-    // POST resource for the `/signup` endpoint
-    isolated resource function post signup(http:Caller caller, http:Request req) 
-            returns error? {
-        json signupPayload = check req.getJsonPayload();
-        User userDetails = check signupPayload.cloneWithType(User);
-
-        // Check if the user already exists by username or email
-        map<json> filter = { "$or": [{username: userDetails.username}, {email: userDetails.email}] };
-        stream<User, error?> userStream = check self.userCollection->find(filter);
         
-        if (userStream.next() is record {| User value; |}) {
-            log:printError("User with the same username or email already exists");
-            http:Response conflictResponse = new;
-            conflictResponse.setTextPayload("User with the same username or email already exists");
-            check caller->respond(conflictResponse);
-            return;
-        }
-
-        // Insert the new user into MongoDB
-        check self.userCollection->insertOne(userDetails);
-
-        // Send success response
-        http:Response response = new;
-        response.setTextPayload("User signed up successfully");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        check caller->respond(response);
+        // Initialize vitaminInfo collection
+        self.vitaminInfoCollection = check self.userDb->getCollection("vitaminInfo");
     }
 
-    // POST resource for the `/signin` endpoint
-    isolated resource function post signin(http:Caller caller, http:Request req) 
-            returns error? {
-        json signinPayload = check req.getJsonPayload();
-        Credentials credentials = check signinPayload.cloneWithType(Credentials);
+    // New resource to fetch vitamin details based on the selected vitamin
+    isolated resource function get vitaminInfo(http:Caller caller, http:Request req) returns error? {
+        // Extract the vitamin name from the query parameter
+        string? vitamin = req.getQueryParamValue("vitamin");
 
-        // Check if the user exists by email
-        map<json> emailFilter = {}; // Explicitly initialize the map
-        emailFilter["email"] = credentials.email;
-
-        stream<User, error?> userStream = check self.userCollection->find(emailFilter);
-
-        // Retrieve the first result from the stream
-        record {| User value; |}? userResult = check userStream.next();
-        
-        if (userResult is ()) {
-            // If the email is not found, return user not found
-            log:printError("User not found");
-            http:Response userNotFoundResponse = new;
-            userNotFoundResponse.setTextPayload("User not found");
-            check caller->respond(userNotFoundResponse);
-            return;
-        } else {
-            // Extract the user from the result
-            User user = userResult.value;
-
-            // If the user exists, check the password
-            if (user.password != credentials.password) {
-                log:printError("Invalid credentials");
-                http:Response invalidCredsResponse = new;
-                invalidCredsResponse.setTextPayload("Invalid credentials");
-                check caller->respond(invalidCredsResponse);
-                return;
-            }
-
-            // If credentials are valid, send success response
-            http:Response response = new;
-            response.setTextPayload("User signed in successfully");
-            check caller->respond(response);
-        }
-    }
-
-    // POST resource for the `/logout` endpoint
-    isolated resource function post logout(http:Caller caller) returns error? {
-        // This is a simple logout response for now (assuming no session management)
-        http:Response response = new;
-        response.setTextPayload("User logged out successfully");
-        check caller->respond(response);
-    }
-
-    // PATCH resource for `/editProfile` endpoint
-    isolated resource function patch editProfile(http:Caller caller, http:Request req) 
-            returns error? {
-        json editPayload = check req.getJsonPayload();
-        ProfileEdit editDetails = check editPayload.cloneWithType(ProfileEdit);
-
-        // Get the user email from the payload for identification
-        if (editDetails.email is ()) {
-            log:printError("Email is required to update profile");
+        if vitamin is () {
             http:Response badRequestResponse = new;
-            badRequestResponse.setTextPayload("Email is required to update profile");
+            badRequestResponse.setTextPayload("Vitamin name is required");
             check caller->respond(badRequestResponse);
             return;
         }
 
-        // Check if the user exists by email
-        map<json> emailFilter = {}; // Explicitly initialize the map
-        emailFilter["email"] = editDetails.email;
+        // Create a filter to search the vitaminInfo collection by vitamin name
+        map<json> filter = { "vitamin": vitamin };
 
-        stream<User, error?> userStream = check self.userCollection->find(emailFilter);
-        record {| User value; |}? userResult = check userStream.next();
-        
-        if (userResult is ()) {
-            // If the email is not found, return user not found
-            log:printError("User not found");
-            http:Response userNotFoundResponse = new;
-            userNotFoundResponse.setTextPayload("User not found");
-            check caller->respond(userNotFoundResponse);
+        // Fetch the corresponding vitamin information from the database
+        stream<VitaminInfo, error?> vitaminInfoStream = check self.vitaminInfoCollection->find(filter);
+
+        record {| VitaminInfo value; |}? vitaminInfoResult = check vitaminInfoStream.next();
+
+        if (vitaminInfoResult is ()) {
+            // If no vitamin info is found, return a "not found" response
+            http:Response notFoundResponse = new;
+            notFoundResponse.setTextPayload("Vitamin information not found");
+            check caller->respond(notFoundResponse);
             return;
         }
 
-        // Update user details based on the provided data
-        map<json> updateFields = {}; // Explicitly initialize the map
-        if (editDetails.username is string) {
-            updateFields["username"] = editDetails.username;
-        }
-        if (editDetails.password is string) {
-            updateFields["password"] = editDetails.password;
-        }
+        // Convert VitaminInfo to json
+        json vitaminInfoJson = vitaminInfoResult.value.toJson();
 
-        // Apply the update to the user collection
-        _ = check self.userCollection->updateOne(emailFilter, { "$set": updateFields });
-
-        // Send success response
+        // Send the vitamin info as the response
         http:Response response = new;
-        response.setTextPayload("Profile updated successfully");
+        response.setPayload(vitaminInfoJson);
         check caller->respond(response);
     }
 }
