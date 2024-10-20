@@ -1,5 +1,6 @@
 import ballerina/http;
 import ballerinax/mongodb;
+import ballerinax/googleapis.oauth2;
 
 type User record {
     string username;
@@ -38,6 +39,25 @@ mongodb:Client mongoDb = check new ({
         }
     }
 });
+
+
+// OAuth 2.0 configuration with your Client ID, Client Secret, and Redirect URI.
+configurable string clientId = ?;
+configurable string clientSecret = ?;
+configurable string redirectUri = "http://localhost:8080/auth/callback";
+
+// Define OAuth2 provider configurations
+oauth2:ProviderConfig googleOAuthProvider = {
+    authUrl: "https://accounts.google.com/o/oauth2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    clientId: clientId,
+    clientSecret: clientSecret,
+    redirectUrl: redirectUri,
+    scopes: ["openid", "email", "profile"]
+};
+
+// Create OAuth2 client to interact with Google OAuth 2.0
+oauth2:Client googleOAuthClient = check new(googleOAuthProvider);
 
 service / on new http:Listener(8080) {
 
