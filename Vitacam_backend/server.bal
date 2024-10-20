@@ -73,6 +73,20 @@ service / on new http:Listener(8080) {
         self.vitaminInfoCollection = check self.userDb->getCollection("vitaminInfo");
     }
 
+     // Resource to handle GeminiAPI image analysis
+    isolated resource function post analyzeImage(http:Caller caller, http:Request req) returns error? {
+        // Extract the image from the request
+        byte[] image = check req.getBinaryPayload();
+
+        // Call the GeminiAPI function for analysis
+        json analysisResult = check analyzeWithGeminiAPI(image);
+
+        // Respond with the analysis result
+        http:Response response = new;
+        response.setPayload(analysisResult);
+        check caller->respond(response);
+    }
+
     // New resource to fetch vitamin details based on the selected vitamin
     isolated resource function get vitaminInfo(http:Caller caller, http:Request req) returns error? {
         // Extract the vitamin name from the query parameter
